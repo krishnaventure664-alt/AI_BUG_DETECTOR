@@ -1,33 +1,34 @@
-from fastapi import FastAPI, UploadFile, File
-from ultralytics import YOLO
-import shutil
-import os
+from fastapi import FastAPI, File, UploadFile
+
+from database import collection
+from yolo_service_new import detect_objects
 
 app = FastAPI()
 
-model = YOLO("yolov8n.pt")
 
 @app.get("/")
 def home():
-    return {"message": "Backend running 🚀"}
+    return {"message": "AI Bug Detector Backend Running"}
+
 
 @app.post("/detect")
-async def detect(file: UploadFile = File(...)):
-    temp_file = "temp.jpg"
+async def detect(file: UploadFile = File(...), lat: float = 0, lon: float = 0):
+    detections = detect_objects(file)
 
-    with open(temp_file, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    data = {
+        "detections": detections,
+        "location": {"latitude": lat, "longitude": lon},
+    }
+    collection.insert_one(data)
 
-    results = model(temp_file)
+    return {
+        "status": "success",
+        "count": len(detections),
+        "detections": detections,
+    }
 
-    detections = []
-    for r in results:
-        for box in r.boxes:
-            detections.append({
-                "class": int(box.cls[0]),
-                "confidence": float(box.conf[0])
-            })
 
-    os.remove(temp_file)
-
-    return {"detections": detections}
+@app.get("/reports")
+def get_reports():
+    data = list(collection.find({}, {"_id": 0}))
+    return {"total_reports": len(data), "reports": data}
